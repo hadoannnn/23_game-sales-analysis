@@ -1,0 +1,714 @@
+---
+title: "DA220 Final Project"
+author: "Ha Doan"
+date: "3/24/2023"
+output: html_document
+---
+## Purpose
+- The purpose of this project to understand the relationship between genres and platforms to sales of video games around the world 
+
+## Data Exploration
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(tidymodels)
+library(ggthemes)
+library(tidytext)
+library(wordcloud)
+library(tm)
+library(GGally)
+library(ggfortify)
+```
+
+```{r}
+myData <- read.csv("vgsales.csv")
+myData <- subset(myData, select = -c(Rank), Year !="2020")  #drop the column Rank since it does not serve any purpose
+# also eliminate ONE data point with the year 2020, as it might skew the trend later on
+head(myData)
+```
+
+
+
+
+#### Add decade column for easier comparison/ trend
+```{r}
+myData <- myData %>%
+  mutate(decade = as.numeric(Year)%/%10) 
+```
+
+```{r}
+myData %>%
+  select(decade, Publisher, Global_Sales) %>%
+  group_by(decade,Publisher) %>%
+  summarize(sale = mean(Global_Sales))
+```
+
+We have the overall sale statistic summary as following: 
+```{r}
+myData %>%
+  summarise_if(is.numeric, funs(mean,sd,median,sum))
+```
+
+
+## Analysis and Model
+
+### 1. Sales
+
+#### 1.1 Sales over the decade:
+```{r}
+df1 <- myData %>%
+  group_by(decade) %>%
+  mutate(pctNa = mean(NA_Sales/Global_Sales * 100), 
+         pctEu = mean(EU_Sales/Global_Sales * 100),
+         pctJp = mean(JP_Sales/Global_Sales * 100),
+         pctOther = mean(Other_Sales/Global_Sales * 100),
+         avgGlobal = mean(Global_Sales))
+df1
+```
+
+
+
+
+```{r}
+ggplot(data=df1, aes(x=decade, y=pctNa, group=1)) +
+  geom_line(color="maroon", size=1.25) +
+  labs(title= "North American Sales Proportion over the Decades", x="Decade", y="Proportion of NA Sales (%)") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14), legend.title = element_text(size = 10), legend.text = element_text(size=8), axis.text = element_text(size=8), axis.text.x = element_text(angle=45), plot.caption = element_text(hjust=0.5, size=8))
+```
+
+```{r}
+ggplot(data=df1, aes(x=decade, y=pctEu, group=1)) +
+  geom_line(color="green3", size = 1.25) +
+  labs(title= "European Sales Proportion over the Decades", x="Decade", y="Proportion of EU Sales (%)") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14), legend.title = element_text(size = 10), legend.text = element_text(size=8), axis.text = element_text(size=8), axis.text.x = element_text(angle=45), plot.caption = element_text(hjust=0.5, size=8))
+```
+
+```{r}
+ggplot(data=df1, aes(x=decade, y=pctJp, group=1)) +
+  geom_line(color="green3", size=1.25) +
+  labs(title= "Japanese Sales Proportion over the Decades", x="Decade", y="Proportion of JP Sales (%)") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14), legend.title = element_text(size = 10), legend.text = element_text(size=8), axis.text = element_text(size=8), axis.text.x = element_text(angle=45), plot.caption = element_text(hjust=0.5, size=8))
+```
+
+```{r}
+ggplot(data=df1, aes(x=decade, y=pctOther, group=1)) +
+  geom_line(color="green3", size=1.25) +
+  labs(title= "Other Region Sales Proportion over the Decades", x="Decade", y="Proportion of Other Sales (%)") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14), legend.title = element_text(size = 10), legend.text = element_text(size=8), axis.text = element_text(size=8), axis.text.x = element_text(angle=45), plot.caption = element_text(hjust=0.5, size=8))
+```
+
+
+
+
+
+
+
+
+
+
+######Inference for Linear Regression
+Is the correlation between the two large enough
+
+1) Hypotheses:
+
+H0: rho = 0 (no lin rel) Ha: rho != 0 (yes, some relationship)
+
+2) Test stats
+
+sample size
+```{r}
+length(myData$JP_Sales)
+```
+df = 16597 - 2 = 16595
+t value
+```{r}
+.61*sqrt(16597-2)/sqrt(1-(.61)^2)
+```
+3) p-value
+```{r}
+pt(99.17,16595)
+```
+
+##### Other Sales and EU Sales
+
+```{r}
+ggpairs(myData, columns=c("NA_Sales","EU_Sales","JP_Sales", "Other_Sales"))
+```
+
+
+
+```{r}
+ggplot(myData, aes(EU_Sales, Other_Sales)) + 
+  geom_point() + geom_smooth(method = "lm") + 
+  labs(title= "Correlation Between European Sales vs Other Sales", x = "European Sales", y= "Other Sales") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14), legend.title = element_text(size = 10), legend.text = element_text(size=8), axis.text = element_text(size=8), plot.caption = element_text(hjust=0.5, size=8))
+```
+
+###### Infernece for linear
+Is the correlation between the two large enough
+
+1) Hypotheses:
+
+H0: rho = 0 (no lin rel) Ha: rho != 0 (yes, some relationship)
+
+2) Test stats
+
+df = 16597 - 2 = 16595
+
+t-value
+```{r}
+.72*sqrt(16597-2)/sqrt(1-(.72)^2)
+```
+p-value
+```{r}
+1- pt(133.70,16595)
+```
+-> very small, approximately 0. Reject null hypothesis and there is some relationship between the 2
+
+##### linear regression
+
+Can we predict Other Sales based on EU?
+```{r}
+OtherModel <- lm(Other_Sales ~ EU_Sales, data = myData)
+summary(OtherModel)
+```
+
+
+```{r}
+autoplot(OtherModel)
+```
+
+
+
+### 2. Platform
+
+To compare which platforms are driving Global Sales, we need calculate the its means by each platforms:
+```{r}
+myData %>%
+  group_by(Platform) %>%
+  summarise(total_charted = n()) %>%
+  arrange(desc(total_charted))
+
+```
+```{r}
+top5Platform <- myData %>%
+          filter(Platform == "DS" | Platform == "PS2" | Platform == "PS3"|
+                 Platform == "Wii"| Platform == "X360") 
+```
+
+
+```{r}
+top5Platform %>%
+  group_by(Platform) %>%
+  summarise_if(is.numeric, funs(mean,sd)) %>%
+  arrange(desc(Global_Sales_mean))  #arrange according to Global Sales, from top to bottom
+
+
+```
+
+We also have the following box plot to illustrate the distribution of the global sales across these 5 top platforms
+```{r}
+ggplot(top5Platform, aes(x = Platform, y = Global_Sales, fill = Platform)) +
+  geom_boxplot() +
+  labs(title= "Global Sales of Video Games in Top 5 Platforms", x="Platforms", y= "Global Sales") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14), legend.title = element_text(size = 10), legend.text = element_text(size=8), axis.text = element_text(size=8), plot.caption = element_text(hjust=0.5, size=8))
+```
+
+Hard to see, a lot of outliers -> run a anova test
+
+##### anova test for platforms
+
+```{r}
+anova_1 <- aov(top5Platform$Global_Sales ~ top5Platform$Platform)
+summary(anova_1)
+```
+Strong evidence to suggest of a difference between mean Global Sales across these 5 platforms
+
+##### multivariate linear regresison for platforms 
+
+```{r}
+globalPlatform <- lm(Global_Sales~Platform, data=top5Platform)
+summary(globalPlatform)
+```
+
+
+```{r}
+plot(globalPlatform$fitted.values, globalPlatform$residuals)
+```
+
+
+##### trend of platforms 
+- Global
+```{r}
+trend1 <- top5Platform %>%
+  select(decade, Platform, Global_Sales) %>%
+  group_by(decade,Platform) %>%
+  summarize(sale = mean(Global_Sales))
+
+trend1 <- trend1 %>%
+  group_by(decade) %>%
+  mutate(pct = sale/sum(sale) * 100)
+
+trend1
+```
+
+
+```{r}
+ggplot(trend1, aes(x = decade, y = pct, group = Platform, color = Platform)) +
+  geom_line() + geom_point(size=3) +
+  labs(title = "Proportion of Global Sales of Top 5 Platforms by Decade",
+       x = "Decades",
+       y = "Global Sales (%)",
+       color = "Platform") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14),
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 45),
+        plot.caption = element_text(hjust = 0.5, size = 8)) 
+```
+
+- North America
+```{r}
+trend2 <- top5Platform %>%
+  select(decade, Platform, NA_Sales) %>%
+  group_by(decade,Platform) %>%
+  summarize(sale = mean(NA_Sales))
+
+trend2 <- trend2 %>%
+  group_by(decade) %>%
+  mutate(pct = sale/sum(sale) * 100)
+
+ggplot(trend2, aes(x = decade, y = pct, group = Platform, color = Platform)) +
+  geom_line() + geom_point(size=3) +
+  labs(title = "North American Percentage Sales of Top 5 Platforms by Decade",
+       x = "Decades",
+       y = "Percentage Sales",
+       color = "Platform") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14),
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 45),
+        plot.caption = element_text(hjust = 0.5, size = 8))
+
+```
+
+```{r}
+trend3 <- top5Platform %>%
+  select(decade, Platform, EU_Sales) %>%
+  group_by(decade,Platform) %>%
+  summarize(sale = mean(EU_Sales))
+
+trend3 <- trend3 %>%
+  group_by(decade) %>%
+  mutate(pct = sale/sum(sale) * 100)
+
+ggplot(trend3, aes(x = decade, y = pct, group = Platform, color = Platform)) +
+  geom_line() + geom_point(size=3) +
+  labs(title = "European Percentage Sales of Top Platforms by Decade",
+       x = "Decades",
+       y = "Percentage Sales",
+       color = "Platform") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14),
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 45),
+        plot.caption = element_text(hjust = 0.5, size = 8))
+```
+
+```{r}
+trend4 <- top5Platform %>%
+  select(decade, Platform, JP_Sales) %>%
+  group_by(decade,Platform) %>%
+  summarize(sale = mean(JP_Sales))
+
+trend4 <- trend4 %>%
+  group_by(decade) %>%
+  mutate(pct = sale/sum(sale) * 100)
+
+ggplot(trend4, aes(x = decade, y = pct, group = Platform, color = Platform)) +
+  geom_line() + geom_point(size=3) +
+  labs(title = "Japanese Percentage Sales of Top Platforms by Decade",
+       x = "Decades",
+       y = "Percentage Sales",
+       color = "Platform") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14),
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 45),
+        plot.caption = element_text(hjust = 0.5, size = 8))
+```
+```{r}
+trend5 <- top5Platform %>%
+  select(decade, Platform, Other_Sales) %>%
+  group_by(decade,Platform) %>%
+  summarize(sale = mean(Other_Sales))
+
+trend5 <- trend5 %>%
+  group_by(decade) %>%
+  mutate(pct = sale/sum(sale) * 100)
+
+ggplot(trend5, aes(x = decade, y = pct, group = Platform, color = Platform)) +
+  geom_line() + geom_point(size=3) +
+  labs(title = "Other Countries Percentage Sales of Top Platforms by Decade",
+       x = "Decades",
+       y = "Percentage Sales",
+       color = "Platform") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14),
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 45),
+        plot.caption = element_text(hjust = 0.5, size = 8))
+```
+
+
+### 3) Genres
+
+```{r}
+myData %>%
+  group_by(Genre) %>%
+  summarise(total_charted = n()) %>%
+  arrange(desc(total_charted))
+```
+```{r}
+top5Genre <- myData %>%
+          filter(Genre == "Action" | Genre == "Sports" | Genre == "Misc" | 
+                Genre == "Role-Playing" | Genre == "Shooter" ) 
+
+head(top5Genre,10)
+```
+
+
+```{r}
+ggplot(top5Genre, aes(x = Genre, y = Global_Sales, fill = Genre)) +
+  geom_boxplot() +
+  labs(title= "Global Sales of Video Games in Top 5 Genres", x="Genres", y= "Global Sales") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14), legend.title = element_text(size = 10), legend.text = element_text(size=8), axis.text = element_text(size=8), plot.caption = element_text(hjust=0.5, size=8))
+```
+Hard to see, a lot of outlier
+
+#### ANOVA Test to see if there is difference in sales across genres
+
+
+```{r}
+anova_2 <- aov(top5Genre$Global_Sales ~ top5Genre$Genre)
+summary(anova_2)
+```
+Yes there are. More specifically, look at the table below we could see that Shooter have the highest global sales
+```{r}
+top5Genre %>%
+  group_by(Genre) %>%
+  summarise_if(is.numeric, funs(mean,sd)) %>%
+  arrange(desc(Global_Sales_mean))
+```
+
+
+#### multivariate linear regression 
+Does that mean Genre could predict the sale of Global Sales?
+
+```{r}
+globalGenre <- lm(Global_Sales~Genre, data=top5Genre)
+summary(globalGenre)
+```
+-> p-value > 0.05 in a lot of case, and adjusted R-squared is very small -> does not work. And so we could not predict Global Sales based on Genres (no predictive relationship between the two). Just because genre in top 5 does not automatically means higher global sales 
+
+#### trend of genres across region
+- Global:
+
+```{r}
+trendG1 <- top5Genre %>%
+  select(decade, Genre, Global_Sales) %>%
+  group_by(decade,Genre) %>%
+  summarize(sale = mean(Global_Sales))
+
+trendG1 <- trendG1 %>%
+  group_by(decade) %>%
+  mutate(pct = sale/sum(sale) * 100)
+
+ggplot(trendG1, aes(x = decade, y = pct, group = Genre, color = Genre)) +
+  geom_line() + geom_point(size=3) +
+  labs(title = "Proportion of Global Sales of Top 5 Genres across Decades",
+       x = "Decades",
+       y = "Global Sales (%)",
+       color = "Genres") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14),
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 45),
+        plot.caption = element_text(hjust = 0.5, size = 8))
+```
+
+- North America:
+```{r}
+trendG2 <- top5Genre %>%
+  select(decade, Genre, NA_Sales) %>%
+  group_by(decade,Genre) %>%
+  summarize(sale = mean(NA_Sales))
+
+trendG2 <- trendG2 %>%
+  group_by(decade) %>%
+  mutate(pct = sale/sum(sale) * 100)
+
+ggplot(trendG2, aes(x = decade, y = pct, group = Genre, color = Genre)) +
+  geom_line() + geom_point(size=3) +
+  labs(title = "Proportion of North American Sales of Top 5 Genres across Decades",
+       x = "Decades",
+       y = "NA Sales (%)",
+       color = "Platform") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14),
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 45),
+        plot.caption = element_text(hjust = 0.5, size = 8))
+```
+
+Have similar trend to global sales
+- Europe:
+```{r}
+trendG3 <- top5Genre %>%
+  select(decade, Genre, EU_Sales) %>%
+  group_by(decade,Genre) %>%
+  summarize(sale = mean(EU_Sales))
+
+trendG3 <- trendG3 %>%
+  group_by(decade) %>%
+  mutate(pct = sale/sum(sale) * 100)
+
+ggplot(trendG1, aes(x = decade, y = pct, group = Genre, color = Genre)) +
+  geom_line() + geom_point(size=3) +
+  labs(title = "Proportion of European Sales of Top 5 Genres across Decades",
+       x = "Decades",
+       y = "Percentage Sales",
+       color = "Platform") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14),
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 45),
+        plot.caption = element_text(hjust = 0.5, size = 8))
+```
+
+```{r}
+trendG4 <- top5Genre %>%
+  select(decade, Genre, JP_Sales) %>%
+  group_by(decade,Genre) %>%
+  summarize(sale = mean(JP_Sales))
+
+trendG4 <- trendG4 %>%
+  group_by(decade) %>%
+  mutate(pct = sale/sum(sale) * 100)
+
+ggplot(trendG4, aes(x = decade, y = pct, group = Genre, color = Genre)) +
+  geom_line() + geom_point(size=3) +
+  labs(title = "Proportion of Japanese Sales of Top 5 Genres across Decades",
+       x = "Decades",
+       y = "JP Sales (%)",
+       color = "Genres") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14),
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 45),
+        plot.caption = element_text(hjust = 0.5, size = 8))
+```
+
+- Very interesting, Role Playing seems to be most popular while shooter at the bottom -> contrast to trends so far
+
+```{r}
+trendG6 <- top5Genre %>%
+  select(decade, Genre, Other_Sales) %>%
+  group_by(decade,Genre) %>%
+  summarize(sale = mean(Other_Sales))
+
+trendG6 <- trendG6 %>%
+  group_by(decade) %>%
+  mutate(pct = sale/sum(sale) * 100)
+
+ggplot(trendG6, aes(x = decade, y = pct, group = Genre, color = Genre)) +
+  geom_line() + geom_point(size=3) +
+  labs(title = "Proportion of Other Sales of Top 5 Genres across Decades",
+       x = "Decades",
+       y = "Other Sales (%)",
+       color = "Platform") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14),
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 45),
+        plot.caption = element_text(hjust = 0.5, size = 8))
+```
+Role playing popular at first, but dropped significantly in 1990s and shooter game is on the rise. 
+
+
+
+
+### 5) Publisher
+#### chisq test between publisher and genres
+```{r}
+chisq.test(myData$Publisher, myData$Genre)
+```
+some relationship
+
+#### top 5 publisher
+```{r}
+myData %>%
+  group_by(Publisher) %>%
+  summarise(total_charted = n()) %>%
+  arrange(desc(total_charted))
+
+```
+```{r}
+top5Publisher <- myData %>%
+          filter(Publisher == "Electronic Arts" | Publisher == "Activision" | Publisher == "Namco Bandai Games" | Publisher== "Ubisoft" | Publisher == "Konami Digital Entertainment" ) 
+
+head(top5Publisher,10)
+```
+
+```{r}
+trendP1 <- top5Publisher %>%
+  select(decade, Publisher, Global_Sales) %>%
+  group_by(decade,Publisher) %>%
+  summarize(sale = mean(Global_Sales))
+
+trendP1 <- trendP1 %>%
+  group_by(decade) %>%
+  mutate(pct = sale/sum(sale) * 100)
+
+ggplot(trendP1, aes(x = decade, y = pct, group = Publisher, color = Publisher)) +
+  geom_line() + geom_point(size=3) +
+  labs(title = "Proportion of Global Sales of Top 5 Publishers across Decades",
+       x = "Decades",
+       y = "Global Sales (%)",
+       color = "Publishers") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14),
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 45),
+        plot.caption = element_text(hjust = 0.5, size = 8))
+```
+#### NA Publisher trend
+```{r}
+trendP2 <- top5Publisher %>%
+  select(decade, Publisher, NA_Sales) %>%
+  group_by(decade,Publisher) %>%
+  summarize(sale = mean(NA_Sales))
+
+trendP2 <- trendP2 %>%
+  group_by(decade) %>%
+  mutate(pct = sale/sum(sale) * 100)
+
+ggplot(trendP1, aes(x = decade, y = pct, group = Publisher, color = Publisher)) +
+  geom_line() + geom_point(size=3) +
+  labs(title = "Proportion of North American Sales of Top 5 Publishers across Decades",
+       x = "Decades",
+       y = "NA Sales (%)",
+       color = "Publishers") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14),
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 45),
+        plot.caption = element_text(hjust = 0.5, size = 8))
+```
+#### Europe 
+```{r}
+trendP3 <- top5Publisher %>%
+  select(decade, Publisher, EU_Sales) %>%
+  group_by(decade,Publisher) %>%
+  summarize(sale = mean(EU_Sales))
+
+trendP3 <- trendP3 %>%
+  group_by(decade) %>%
+  mutate(pct = sale/sum(sale) * 100)
+
+ggplot(trendP3, aes(x = decade, y = pct, group = Publisher, color = Publisher)) +
+  geom_line() + geom_point(size=3) +
+  labs(title = "Proportion of European Sales of Top 5 Publishers across Decades",
+       x = "Decades",
+       y = "European Sales (%)",
+       color = "Publishers") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14),
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 45),
+        plot.caption = element_text(hjust = 0.5, size = 8))
+```
+
+#### JP sales
+```{r}
+trendP5 <- top5Publisher %>%
+  select(decade, Publisher, JP_Sales) %>%
+  group_by(decade,Publisher) %>%
+  summarize(sale = mean(JP_Sales))
+
+trendP5 <- trendP5 %>%
+  group_by(decade) %>%
+  mutate(pct = sale/sum(sale) * 100)
+
+ggplot(trendP5, aes(x = decade, y = pct, group = Publisher, color = Publisher)) +
+  geom_line() + geom_point(size=3) +
+  labs(title = "Proportion of Japanese Sales of Top 5 Publishers across Decades",
+       x = "Decades",
+       y = "Japanese Sales (%)",
+       color = "Publishers") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14),
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 45),
+        plot.caption = element_text(hjust = 0.5, size = 8))
+```
+
+#### Other sales across publisher
+```{r}
+trendP6 <- top5Publisher %>%
+  select(decade, Publisher, Other_Sales) %>%
+  group_by(decade,Publisher) %>%
+  summarize(sale = mean(Other_Sales))
+
+trendP6 <- trendP6 %>%
+  group_by(decade) %>%
+  mutate(pct = sale/sum(sale) * 100)
+
+ggplot(trendP6, aes(x = decade, y = pct, group = Publisher, color = Publisher)) +
+  geom_line() + geom_point(size=3) +
+  labs(title = "Proportion of Other Sales of Top 5 Publishers across Decades",
+       x = "Decades",
+       y = "Other Sales (%)",
+       color = "Publishers") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14),
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 45),
+        plot.caption = element_text(hjust = 0.5, size = 8))
+```
+
+#### percentage of genre per publisher
+```{r}
+ggplot(top5Publisher, aes(x = Publisher, fill = Genre)) +
+  geom_bar(position = "fill") +
+  labs(title = "Percentage of Genre per Publisher (in Top 5)",
+       x = "Publisher",
+       y = "Percentage",
+       fill = "Publisher") +
+  scale_y_continuous(labels = scales::percent_format()) +
+  theme(plot.title = element_text(hjust = 0.5, size = 14),
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 45),
+        plot.caption = element_text(hjust = 0.5, size = 8)) +
+  coord_flip()+
+  scale_fill_manual(values=c("#FFA07A", "#F08080", "#FFB6C1", "#87CEEB", "#ADD8E6", "#66CDAA", "#3CB371", "#F0E68C", "#DAA520", "#BC8F8F", "#BDB76B", "#8FBC8F"))
+```
+
